@@ -27,7 +27,9 @@ local spawnClone = remotes:WaitForChild("SpawnClone")
 local moveClones = remotes:WaitForChild("MoveClones")
 
 local templates = {} -- [Player] = { model: Model, idleAnimation: Animation?, walkAnimation: Animation? }
-local clonesByPlayer = {} -- [Player] = { { model, humanoid, root, walkTrack, target } }
+local clonesByPlayer = {} -- [Player] = { { id, owner, model, humanoid, root, walkTrack, target } }
+local clonesById = {} -- [number] = clone, for looking up the clones a client asks to move
+local nextCloneId = 0
 
 local function isValidPosition(position)
 	return typeof(position) == "Vector3"
@@ -103,6 +105,14 @@ local function createClone(player, template, position)
 	local model = template.model:Clone()
 	model.Name = player.Name .. "Clone"
 	model:PivotTo(CFrame.new(position + Vector3.new(0, 4, 0)))
+
+	-- Give the clone a unique id and mark who owns it.
+	-- These are set before parenting so clients see them as soon as the clone appears.
+	nextCloneId += 1
+	local id = nextCloneId
+	model:SetAttribute("CloneId", id)
+	model:SetAttribute("OwnerId", player.UserId)
+
 	model.Parent = game.Workspace
 	model.PrimaryPart:SetNetworkOwner(nil)
 
@@ -116,6 +126,8 @@ local function createClone(player, template, position)
 	if idleTrack then idleTrack:Play() end
 
 	local clone = {
+		id = id,
+		owner = player,
 		model = model,
 		humanoid = humanoid,
 		root = model.PrimaryPart,
@@ -137,6 +149,8 @@ local function createClone(player, template, position)
 		model:Destroy()
 	end)
 	model.Destroying:Connect(function()
+		clonesById[id] = nil
+
 		local playerClones = clonesByPlayer[player]
 		local index = playerClones and table.find(playerClones, clone)
 		if index then
@@ -144,6 +158,7 @@ local function createClone(player, template, position)
 		end
 	end)
 
+	clonesById[id] = clone
 	return clone
 end
 
@@ -213,13 +228,21 @@ spawnClone.OnServerEvent:Connect(function(player, position)
 	table.insert(playerClones, createClone(player, template, position))
 end)
 
-moveClones.OnServerEvent:Connect(function(player, position)
-	local playerClones = clonesByPlayer[player]
-	if not playerClones or not isValidPosition(position) then return end
+-- Moves the clones the client has selected, sent as a list of clone ids.
+moveClones.OnServerEvent:Connect(function(player, position, cloneIds)
+	if not isValidPosition(position) or typeof(cloneIds) ~= "table" then return end
 
-	for _, clone in playerClones do
-		clone.target = position
-		clone.humanoid:MoveTo(position)
+	-- A player can never own more than maxClonesPerPlayer, so ignore anything longer.
+	if #cloneIds > maxClonesPerPlayer then return end
+
+	for _, id in cloneIds do
+		local clone = clonesById[id]
+
+		-- Only move clones this player actually owns, so nobody can move someone else's.
+		if clone and clone.owner == player then
+			clone.target = position
+			clone.humanoid:MoveTo(position)
+		end
 	end
 end)
 
