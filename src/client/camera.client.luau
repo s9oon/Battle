@@ -48,7 +48,7 @@ end)
 local function updateCamera()
   camera.CameraType = Enum.CameraType.Scriptable
 
-  -- Slide the camera so the ground point grabbed on right click stays under the mouse.
+  -- Slide the camera so the ground point grabbed on shift + left click stays under the mouse.
   if isDragging then
     local groundPoint = getGroundPointUnderMouse()
     if groundPoint then

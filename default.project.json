@@ -3,9 +3,29 @@
   "tree": {
     "$className": "DataModel",
 
+    "ReplicatedStorage": {
+      "Remotes": {
+        "$className": "Folder",
+        "SpawnClone": {
+          "$className": "RemoteEvent"
+        },
+        "MoveClones": {
+          "$className": "RemoteEvent"
+        }
+      }
+    },
+
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+
     "StarterPlayer": {
       "$properties": {
-        "EnableMouseLockOption": false
+        "EnableMouseLockOption": false,
+        "DevComputerMovementMode": "Scriptable",
+        "DevTouchMovementMode": "Scriptable"
       },
       "StarterPlayerScripts": {
         "Client": {
