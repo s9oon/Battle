@@ -24,6 +24,10 @@ local function isShiftDown()
 	return UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 end
 
+local function getKeyDown(keyCode)
+	return UserInputService:IsKeyDown(keyCode)
+end
+
 -- Right click spawns a clone, left click moves every clone. Shift + left click is the camera drag, so skip it.
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end

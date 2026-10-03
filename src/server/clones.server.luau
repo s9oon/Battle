@@ -5,6 +5,18 @@ local hiddenCharacterCFrame = CFrame.new(0, 1000, 0)
 local reachedDistance = 6 -- Stop retrying a move once a clone is this close to its target.
 local walkSpeedThreshold = 1 -- Studs per second a clone must move to play its walk animation.
 
+-- Clones only ever stand, walk and fall, so skip the physics checks for everything else.
+local unusedHumanoidStates = {
+	Enum.HumanoidStateType.Climbing,
+	Enum.HumanoidStateType.Swimming,
+	Enum.HumanoidStateType.Seated,
+	Enum.HumanoidStateType.FallingDown,
+	Enum.HumanoidStateType.Ragdoll,
+	Enum.HumanoidStateType.GettingUp,
+	Enum.HumanoidStateType.Flying,
+	Enum.HumanoidStateType.StrafingNoPhysics,
+}
+
 -- Variables:
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,8 +26,8 @@ local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local spawnClone = remotes:WaitForChild("SpawnClone")
 local moveClones = remotes:WaitForChild("MoveClones")
 
-local templates = {} -- [player] = { model = Model, walkAnimationId = string?, idleAnimationId = string? }
-local clones = {} -- [player] = { Model }
+local templates = {} -- [Player] = { model: Model, idleAnimation: Animation?, walkAnimation: Animation? }
+local clonesByPlayer = {} -- [Player] = { { model, humanoid, root, walkTrack, target } }
 
 local function isValidPosition(position)
 	return typeof(position) == "Vector3"
@@ -23,10 +35,11 @@ local function isValidPosition(position)
 		and position.Magnitude < maxClickDistance
 end
 
-local function getAnimationId(animate, name)
+-- Templates:
+local function getAnimation(animate, name)
 	local folder = animate:FindFirstChild(name)
 	local animation = folder and folder:FindFirstChildWhichIsA("Animation")
-	return animation and animation.AnimationId
+	return animation and animation:Clone()
 end
 
 -- Copies the character into a template that clones are made from.
@@ -39,13 +52,19 @@ local function createTemplate(character)
 	local template = { model = model }
 	local animate = model:FindFirstChild("Animate")
 	if animate then
-		template.walkAnimationId = getAnimationId(animate, "walk")
-		template.idleAnimationId = getAnimationId(animate, "idle")
+		template.idleAnimation = getAnimation(animate, "idle")
+		template.walkAnimation = getAnimation(animate, "walk")
 	end
 
 	for _, descendant in model:GetDescendants() do
 		if descendant:IsA("LocalScript") or descendant:IsA("ForceField") then
 			descendant:Destroy()
+		elseif descendant:IsA("BasePart") and descendant.Parent:IsA("Accessory") then
+			-- Hats and hair are purely visual, so keep them out of physics, touches and raycasts.
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+			descendant.Massless = true
 		end
 	end
 
@@ -71,53 +90,80 @@ local function hideCharacter(character)
 	end
 end
 
-local function loadAnimation(animator, animationId, priority)
-	if not animationId then return nil end
+-- Clones:
+local function loadAnimation(animator, animation, priority)
+	if not animation then return nil end
 
-	local animation = Instance.new("Animation")
-	animation.AnimationId = animationId
 	local track = animator:LoadAnimation(animation)
 	track.Priority = priority
 	return track
 end
 
-local function setUpClone(clone, template)
-	local humanoid = clone:FindFirstChildOfClass("Humanoid")
-	local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
+local function createClone(player, template, position)
+	local model = template.model:Clone()
+	model.Name = player.Name .. "Clone"
+	model:PivotTo(CFrame.new(position + Vector3.new(0, 4, 0)))
+	model.Parent = game.Workspace
+	model.PrimaryPart:SetNetworkOwner(nil)
 
-	-- Animations:
-	local idleTrack = loadAnimation(animator, template.idleAnimationId, Enum.AnimationPriority.Idle)
-	local walkTrack = loadAnimation(animator, template.walkAnimationId, Enum.AnimationPriority.Movement)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	for _, state in unusedHumanoidStates do
+		humanoid:SetStateEnabled(state, false)
+	end
+
+	local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
+	local idleTrack = loadAnimation(animator, template.idleAnimation, Enum.AnimationPriority.Idle)
 	if idleTrack then idleTrack:Play() end
 
-	-- Play the walk animation while the clone is moving sideways.
-	if walkTrack then
-		local root = clone.PrimaryPart
-		local connection = RunService.Heartbeat:Connect(function()
-			local velocity = root.AssemblyLinearVelocity
-			local isMoving = Vector3.new(velocity.X, 0, velocity.Z).Magnitude > walkSpeedThreshold
-			if isMoving and not walkTrack.IsPlaying then
-				walkTrack:Play()
-			elseif not isMoving and walkTrack.IsPlaying then
-				walkTrack:Stop()
-			end
-		end)
-		clone.Destroying:Connect(function()
-			connection:Disconnect()
-		end)
-	end
+	local clone = {
+		model = model,
+		humanoid = humanoid,
+		root = model.PrimaryPart,
+		walkTrack = loadAnimation(animator, template.walkAnimation, Enum.AnimationPriority.Movement),
+		target = nil,
+	}
 
 	-- MoveTo gives up after 8 seconds, so keep walking until the clone gets close to its target.
 	humanoid.MoveToFinished:Connect(function(reached)
-		local target = humanoid:GetAttribute("MoveTarget")
-		if reached or not target or not clone.PrimaryPart then return end
+		if reached or not clone.target then return end
 
-		if (clone.PrimaryPart.Position - target).Magnitude > reachedDistance then
-			humanoid:MoveTo(target)
+		if (clone.root.Position - clone.target).Magnitude > reachedDistance then
+			humanoid:MoveTo(clone.target)
 		end
 	end)
+
+	-- Clean up clones that die, e.g. by falling out of the world, and forget them once they're gone.
+	humanoid.Died:Connect(function()
+		model:Destroy()
+	end)
+	model.Destroying:Connect(function()
+		local playerClones = clonesByPlayer[player]
+		local index = playerClones and table.find(playerClones, clone)
+		if index then
+			table.remove(playerClones, index)
+		end
+	end)
+
+	return clone
 end
 
+-- Play each clone's walk animation while it's moving sideways.
+local function updateWalkAnimations()
+	for _, playerClones in clonesByPlayer do
+		for _, clone in playerClones do
+			local walkTrack = clone.walkTrack
+			if walkTrack then
+				local velocity = clone.root.AssemblyLinearVelocity
+				local isMoving = Vector3.new(velocity.X, 0, velocity.Z).Magnitude > walkSpeedThreshold
+				if isMoving ~= walkTrack.IsPlaying then
+					if isMoving then walkTrack:Play() else walkTrack:Stop() end
+				end
+			end
+		end
+	end
+end
+
+-- Players:
 local function onCharacterAdded(player, character)
 	if not player:HasAppearanceLoaded() then
 		player.CharacterAppearanceLoaded:Wait()
@@ -133,7 +179,7 @@ local function onCharacterAdded(player, character)
 end
 
 local function onPlayerAdded(player)
-	clones[player] = {}
+	clonesByPlayer[player] = {}
 
 	player.CharacterAdded:Connect(function(character)
 		onCharacterAdded(player, character)
@@ -144,54 +190,40 @@ local function onPlayerAdded(player)
 end
 
 local function onPlayerRemoving(player)
-	for _, clone in clones[player] or {} do
-		clone:Destroy()
+	-- Clear the list first so each clone's Destroying handler doesn't edit it mid-loop.
+	local playerClones = clonesByPlayer[player] or {}
+	clonesByPlayer[player] = nil
+	for _, clone in playerClones do
+		clone.model:Destroy()
 	end
+
 	if templates[player] then
 		templates[player].model:Destroy()
+		templates[player] = nil
 	end
-
-	clones[player] = nil
-	templates[player] = nil
 end
 
--- Clone events:
+-- Remote events:
 spawnClone.OnServerEvent:Connect(function(player, position)
 	local template = templates[player]
-	local playerClones = clones[player]
+	local playerClones = clonesByPlayer[player]
 	if not template or not playerClones or not isValidPosition(position) then return end
-
-	-- Forget clones that have been destroyed, e.g. fell out of the world.
-	for i = #playerClones, 1, -1 do
-		if playerClones[i].Parent == nil then
-			table.remove(playerClones, i)
-		end
-	end
 	if #playerClones >= maxClonesPerPlayer then return end
 
-	local clone = template.model:Clone()
-	clone.Name = player.Name .. "Clone"
-	clone:PivotTo(CFrame.new(position + Vector3.new(0, 4, 0)))
-	clone.Parent = game.Workspace
-	clone.PrimaryPart:SetNetworkOwner(nil)
-
-	setUpClone(clone, template)
-	table.insert(playerClones, clone)
+	table.insert(playerClones, createClone(player, template, position))
 end)
 
 moveClones.OnServerEvent:Connect(function(player, position)
-	local playerClones = clones[player]
+	local playerClones = clonesByPlayer[player]
 	if not playerClones or not isValidPosition(position) then return end
 
 	for _, clone in playerClones do
-		local humanoid = clone.Parent and clone:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			humanoid:SetAttribute("MoveTarget", position)
-			humanoid:MoveTo(position)
-		end
+		clone.target = position
+		clone.humanoid:MoveTo(position)
 	end
 end)
 
+RunService.Heartbeat:Connect(updateWalkAnimations)
 Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(onPlayerRemoving)
 for _, player in Players:GetPlayers() do
