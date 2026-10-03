@@ -1,6 +1,7 @@
 -- Variables:
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -54,13 +55,6 @@ local function deselect(model)
 	selectedClones[model] = nil
 end
 
--- For now, every clone you own is selected as soon as it spawns.
-game.Workspace.ChildAdded:Connect(function(child)
-	if child:GetAttribute("OwnerId") == player.UserId then
-		select(child)
-	end
-end)
-
 -- Drop clones from the selection when they're removed, e.g. when they die.
 game.Workspace.ChildRemoved:Connect(deselect)
 
@@ -73,11 +67,71 @@ local function getSelectedCloneIds()
 	return cloneIds
 end
 
--- Right click spawns a clone, left click moves the selected clones. Shift + left click is the camera drag, so skip it.
+-- Deselects every clone.
+local function clearSelection()
+	for model in selectedClones do
+		deselect(model)
+	end
+end
+
+-- Control groups:
+-- Ctrl + a number key saves the current selection to that group, the number key on its own selects it again.
+local groupKeys = {
+	[Enum.KeyCode.One] = 1,
+	[Enum.KeyCode.Two] = 2,
+	[Enum.KeyCode.Three] = 3,
+	[Enum.KeyCode.Four] = 4,
+	[Enum.KeyCode.Five] = 5,
+	[Enum.KeyCode.Six] = 6,
+	[Enum.KeyCode.Seven] = 7,
+	[Enum.KeyCode.Eight] = 8,
+	[Enum.KeyCode.Nine] = 9,
+}
+local groups = {} -- [group number] = { Model }
+
+-- Roblox's tool hotbar also uses the number keys, so hide it.
+StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+
+local function isCtrlDown()
+	return getKeyDown(Enum.KeyCode.LeftControl) or getKeyDown(Enum.KeyCode.RightControl)
+end
+
+-- Remembers which clones are selected right now under this group number.
+local function saveGroup(group)
+	local models = {}
+	for model in selectedClones do
+		table.insert(models, model)
+	end
+	groups[group] = models
+end
+
+-- Replaces the selection with the clones saved in this group, skipping any that have died since.
+local function selectGroup(group)
+	local models = groups[group]
+	if not models then return end
+
+	clearSelection()
+	for _, model in models do
+		if model.Parent then
+			select(model)
+		end
+	end
+end
+
+-- Input:
+-- Number keys handle control groups, right click spawns a clone, left click moves the selected clones.
+-- Shift + left click is the camera drag, so skip it.
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
-	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+	local group = groupKeys[input.KeyCode]
+	if group then
+		if isCtrlDown() then
+			saveGroup(group)
+		else
+			selectGroup(group)
+		end
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
 		local position = getClickedPosition()
 		if position then
 			spawnClone:FireServer(position)
