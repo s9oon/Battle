@@ -1,28 +1,17 @@
 -- Options:
-local cameraHeight = 25
-local cameraOffsetX = 0
-local cameraOffsetZ = 0
+local cameraPosition = Vector3.new(0, 60, 40)
+local lookAtPosition = Vector3.new(0, 0, 0)
 
 -- Variables:
-local players = game:GetService("Players")
 local runService = game:GetService("RunService")
 
-local player = players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
 local camera = game.Workspace.CurrentCamera
-
-player.CharacterAdded:Connect(function(newCharacter)
-  character = newCharacter
-end)
+local cameraCFrame = CFrame.lookAt(cameraPosition, lookAtPosition)
 
 -- Camera Script:
 local function updateCamera()
-  local root = character and character.PrimaryPart
-  if not root then return end
-
   camera.CameraType = Enum.CameraType.Scriptable
-  local targetPosition = root.Position + Vector3.new(cameraOffsetX, cameraHeight, cameraOffsetZ)
-  camera.CFrame = CFrame.lookAt(targetPosition, root.Position)
+  camera.CFrame = cameraCFrame
 end
 
-runService:BindToRenderStep("TopDownCamera", Enum.RenderPriority.Camera.Value + 1, updateCamera)
+runService:BindToRenderStep("StationaryCamera", Enum.RenderPriority.Camera.Value + 1, updateCamera)
