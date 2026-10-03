@@ -4,6 +4,9 @@
     "$className": "DataModel",
 
     "ReplicatedStorage": {
+      "Packages": {
+        "$path": "Packages"
+      },
       "Remotes": {
         "$className": "Folder",
         "SpawnClone": {

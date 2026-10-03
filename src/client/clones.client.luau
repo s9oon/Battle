@@ -29,10 +29,6 @@ local function isShiftDown()
 	return UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 end
 
-local function getKeyDown(keyCode)
-	return UserInputService:IsKeyDown(keyCode)
-end
-
 -- Selection:
 -- Outlines the clone and adds it to the selection.
 local function select(model)
@@ -92,10 +88,6 @@ local groups = {} -- [group number] = { Model }
 -- Roblox's tool hotbar also uses the number keys, so hide it.
 StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 
-local function isCtrlDown()
-	return getKeyDown(Enum.KeyCode.LeftControl) or getKeyDown(Enum.KeyCode.RightControl)
-end
-
 -- Remembers which clones are selected right now under this group number.
 local function saveGroup(group)
 	local models = {}
@@ -126,7 +118,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
 	local group = groupKeys[input.KeyCode]
 	if group then
-		if isCtrlDown() then
+		if isShiftDown() then
 			saveGroup(group)
 		else
 			selectGroup(group)
