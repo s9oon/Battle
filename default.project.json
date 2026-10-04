@@ -18,6 +18,12 @@
       }
     },
 
+    "Workspace": {
+      "Terrain": {
+        "$path": "assets/terrain.rbxmx"
+      }
+    },
+
     "ServerScriptService": {
       "Server": {
         "$path": "src/server"

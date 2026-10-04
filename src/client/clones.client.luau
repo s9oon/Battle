@@ -7,7 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local camera = game.Workspace.CurrentCamera
 
-local selectedClones = {} -- [Model] = Highlight
+local selection = require(script.Parent:WaitForChild("selection"))
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local spawnClone = remotes:WaitForChild("SpawnClone")
@@ -29,49 +29,17 @@ local function isShiftDown()
 	return UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
 end
 
--- Selection:
--- Outlines the clone and adds it to the selection.
-local function select(model)
-	if selectedClones[model] then return end
-
-	local highlight = Instance.new("Highlight")
-	highlight.FillTransparency = 0.7
-	highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
-	highlight.Adornee = model
-	highlight.Parent = model
-	selectedClones[model] = highlight
-end
-
--- Removes the outline and takes the clone out of the selection.
-local function deselect(model)
-	local highlight = selectedClones[model]
-	if not highlight then return end
-
-	highlight:Destroy()
-	selectedClones[model] = nil
-end
-
--- Drop clones from the selection when they're removed, e.g. when they die.
-game.Workspace.ChildRemoved:Connect(deselect)
-
 -- Returns the ids of every selected clone, ready to send to the server.
 local function getSelectedCloneIds()
 	local cloneIds = {}
-	for model in selectedClones do
+	for _, model in selection.getSelected() do
 		table.insert(cloneIds, model:GetAttribute("CloneId"))
 	end
 	return cloneIds
 end
 
--- Deselects every clone.
-local function clearSelection()
-	for model in selectedClones do
-		deselect(model)
-	end
-end
-
 -- Control groups:
--- Ctrl + a number key saves the current selection to that group, the number key on its own selects it again.
+-- Shift + a number key saves the current selection to that group, the number key on its own selects it again.
 local groupKeys = {
 	[Enum.KeyCode.One] = 1,
 	[Enum.KeyCode.Two] = 2,
@@ -90,11 +58,7 @@ StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 
 -- Remembers which clones are selected right now under this group number.
 local function saveGroup(group)
-	local models = {}
-	for model in selectedClones do
-		table.insert(models, model)
-	end
-	groups[group] = models
+	groups[group] = selection.getSelected()
 end
 
 -- Replaces the selection with the clones saved in this group, skipping any that have died since.
@@ -102,10 +66,10 @@ local function selectGroup(group)
 	local models = groups[group]
 	if not models then return end
 
-	clearSelection()
+	selection.clear()
 	for _, model in models do
 		if model.Parent then
-			select(model)
+			selection.select(model)
 		end
 	end
 end
@@ -130,7 +94,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 and not isShiftDown() then
 		local position = getClickedPosition()
-		if position and next(selectedClones) then
+		if position and selection.hasSelection() then
 			moveClones:FireServer(position, getSelectedCloneIds())
 		end
 	end
