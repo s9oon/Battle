@@ -179,11 +179,14 @@ local function updateWalkAnimations()
 end
 
 -- Players:
-local function onCharacterAdded(player, character)
-	if not player:HasAppearanceLoaded() then
-		player.CharacterAppearanceLoaded:Wait()
+-- Runs once the character's hats, clothes and body parts have loaded, so the template copies the full avatar.
+local function onCharacterAppearanceLoaded(player, character)
+	-- The appearance can finish loading before the character is put in the workspace, and hiding it then
+	-- gets undone when it spawns, so wait for that. Give up if the player has respawned in the meantime.
+	while character.Parent == nil do
+		if player.Character ~= character then return end
+		task.wait()
 	end
-	if character.Parent == nil then return end
 
 	if templates[player] then
 		templates[player].model:Destroy()
@@ -196,11 +199,13 @@ end
 local function onPlayerAdded(player)
 	clonesByPlayer[player] = {}
 
-	player.CharacterAdded:Connect(function(character)
-		onCharacterAdded(player, character)
+	-- Listen for the appearance event itself rather than waiting for it inside CharacterAdded,
+	-- it can fire in the same frame as CharacterAdded and a wait started after that never finishes.
+	player.CharacterAppearanceLoaded:Connect(function(character)
+		onCharacterAppearanceLoaded(player, character)
 	end)
-	if player.Character then
-		task.spawn(onCharacterAdded, player, player.Character)
+	if player.Character and player:HasAppearanceLoaded() then
+		task.spawn(onCharacterAppearanceLoaded, player, player.Character)
 	end
 end
 

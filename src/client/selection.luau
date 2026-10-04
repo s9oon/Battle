@@ -1,4 +1,4 @@
--- Tracks the local player's clones and which of them are selected, shared by the input and UI scripts.
+-- Tracks the local player's clones, which of them are selected and their control groups, shared by the input and UI scripts.
 
 -- Variables:
 local Players = game:GetService("Players")
@@ -9,10 +9,11 @@ local selection = {}
 
 local clones = {} -- [Model] = true, every clone this player owns
 local selectedClones = {} -- [Model] = Highlight
+local groups = {} -- [group number] = { [Model] = true }
 local changedEvent = Instance.new("BindableEvent")
 local changePending = false
 
--- Fires once after any clones are added or removed, or the selection changes.
+-- Fires once after any clones are added or removed, the selection changes or a group is saved.
 selection.changed = changedEvent.Event
 
 -- Batches changes made in the same frame, e.g. selecting a whole group, into one changed event.
@@ -81,17 +82,49 @@ function selection.getSelected()
 	return models
 end
 
--- Clones:
--- Returns every clone this player owns, oldest first.
-function selection.getClones()
+-- Turns a { [Model] = true } set into a list, oldest clone first.
+local function toSortedList(set)
 	local models = {}
-	for model in clones do
+	for model in set do
 		table.insert(models, model)
 	end
 	table.sort(models, function(a, b)
 		return a:GetAttribute("CloneId") < b:GetAttribute("CloneId")
 	end)
 	return models
+end
+
+-- Control groups:
+-- Saves the current selection under this group number, saving an empty selection clears the group.
+function selection.saveGroup(group)
+	local members = {}
+	for model in selectedClones do
+		members[model] = true
+	end
+	groups[group] = next(members) and members or nil
+	notifyChanged()
+end
+
+-- Replaces the selection with the clones saved in this group.
+function selection.selectGroup(group)
+	local members = groups[group]
+	if not members then return end
+
+	selection.clear()
+	for model in members do
+		selection.select(model)
+	end
+end
+
+-- Returns the clones in this group, oldest first.
+function selection.getGroup(group)
+	return toSortedList(groups[group] or {})
+end
+
+-- Clones:
+-- Returns every clone this player owns, oldest first.
+function selection.getClones()
+	return toSortedList(clones)
 end
 
 -- The server sets CloneId and OwnerId before parenting, so they're already there when the clone appears.
@@ -108,6 +141,12 @@ local function onChildRemoved(child)
 
 	clones[child] = nil
 	selection.deselect(child)
+	for group, members in groups do
+		members[child] = nil
+		if not next(members) then
+			groups[group] = nil
+		end
+	end
 	notifyChanged()
 end
 

@@ -51,28 +51,9 @@ local groupKeys = {
 	[Enum.KeyCode.Eight] = 8,
 	[Enum.KeyCode.Nine] = 9,
 }
-local groups = {} -- [group number] = { Model }
 
 -- Roblox's tool hotbar also uses the number keys, so hide it.
 StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
-
--- Remembers which clones are selected right now under this group number.
-local function saveGroup(group)
-	groups[group] = selection.getSelected()
-end
-
--- Replaces the selection with the clones saved in this group, skipping any that have died since.
-local function selectGroup(group)
-	local models = groups[group]
-	if not models then return end
-
-	selection.clear()
-	for _, model in models do
-		if model.Parent then
-			selection.select(model)
-		end
-	end
-end
 
 -- Input:
 -- Number keys handle control groups, right click spawns a clone, left click moves the selected clones.
@@ -83,9 +64,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	local group = groupKeys[input.KeyCode]
 	if group then
 		if isShiftDown() then
-			saveGroup(group)
+			selection.saveGroup(group)
 		else
-			selectGroup(group)
+			selection.selectGroup(group)
 		end
 	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
 		local position = getClickedPosition()
